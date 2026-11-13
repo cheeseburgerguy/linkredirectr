@@ -1,0 +1,11 @@
+=================================================================
+
+CLOUDFLARE PAGES REDIRECT FILE
+
+Keep empty or only put links here that DO NOT need health checks.
+
+All links in 404.html REDIRECTS dictionary will be automatically
+
+health-checked before redirecting!
+
+=================================================================
