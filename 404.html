@@ -32,141 +32,40 @@
         <div id="email-status" class="hidden text-xs font-mono mb-6"></div>
 
         <div id="action-area" class="hidden">
-            <a href="/" class="inline-flex items-center justify-center px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-sm transition-colors duration-200">
-                return to home
-            </a>
+            <div class="flex flex-col gap-3">
+                <div id="broken-actions" class="hidden">
+                    <div class="flex flex-wrap items-center justify-center gap-2.5">
+                        <button id="retry-btn" type="button" class="inline-flex items-center justify-center px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-sm transition-colors duration-200 cursor-pointer">
+                            try again
+                        </button>
+                        <button id="report-btn" type="button" class="inline-flex items-center justify-center px-4 py-2.5 rounded-xl bg-rose-600/90 hover:bg-rose-500 text-white font-medium text-sm transition-colors duration-200 cursor-pointer">
+                            send report
+                        </button>
+                    </div>
+                </div>
+
+                <a href="/" class="inline-flex items-center justify-center px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium text-sm transition-colors duration-200">
+                    return to home
+                </a>
+
+                <a id="force-open-link" href="#" class="hidden text-xs text-slate-500 hover:text-slate-300 underline mt-1">
+                    open destination anyway
+                </a>
+            </div>
         </div>
     </div>
 
     <script>
+        let currentCleanPath = "";
+        let currentTargetUrl = "";
+
         async function sendEmailAlert(subject, messageText, attemptedPath, targetUrl) {
-            const emailStatus = document.getElementById('email-status');
-            if (emailStatus) {
-                emailStatus.classList.remove('hidden');
-                emailStatus.className = "text-xs font-mono mb-6 text-indigo-400 animate-pulse";
-                emailStatus.textContent = "sending email alert...";
-            }
-
-            try {
-                const formData = new FormData();
-                formData.append("name", "link monitor bot");
-                formData.append("subject", subject);
-                formData.append("message", messageText);
-                formData.append("Attempted_Path", attemptedPath);
-                formData.append("Target_URL", targetUrl);
-                formData.append("_template", "table");
-                formData.append("_captcha", "false");
-
-                const response = await fetch("https://formsubmit.co/ajax/vince_yang702@ahschools.us", {
-                    method: "POST",
-                    body: formData
-                });
-
-                if (response.ok) {
-                    await response.text();
-                    if (emailStatus) {
-                        emailStatus.className = "text-xs font-mono mb-6 text-emerald-400 font-semibold";
-                        emailStatus.textContent = "✓ email alert sent successfully!";
-                    }
-                    return true;
-                } else {
-                    if (emailStatus) {
-                        emailStatus.className = "text-xs font-mono mb-6 text-rose-400 font-semibold";
-                        emailStatus.textContent = `✗ failed to send email alert (status: ${response.status})`;
-                    }
-                    return false;
-                }
-            } catch (err) {
-                console.error("failed to send email notification:", err);
-                if (emailStatus) {
-                    emailStatus.className = "text-xs font-mono mb-6 text-rose-400 font-semibold";
-                    emailStatus.textContent = "✗ failed to send email alert (network error)";
-                }
-                return false;
-            }
+// ... existing code ... -->
+        if (document.readyState === 'loading') {
+            window.addEventListener('DOMContentLoaded', checkAndRedirect);
+        } else {
+            checkAndRedirect();
         }
-
-        async function checkAndRedirect() {
-            const rawPath = window.location.pathname;
-            const cleanPath = (rawPath.length > 1 && rawPath.endsWith('/')) ? rawPath.slice(0, -1) : rawPath;
-
-            const pathBadge = document.getElementById('path-badge');
-            if (pathBadge) pathBadge.textContent = cleanPath;
-
-            let redirects = {};
-            try {
-                const res = await fetch('/redirects.json');
-                if (res.ok) {
-                    const text = await res.text();
-                    if (text && text.trim()) {
-                        try {
-                            redirects = JSON.parse(text.trim());
-                        } catch (parseErr) {
-                            console.warn("invalid json structure in redirects.json:", parseErr);
-                        }
-                    }
-                }
-            } catch (e) {
-                console.warn("could not load redirects.json:", e);
-            }
-
-            const targetUrl = redirects[cleanPath] || redirects[cleanPath.toLowerCase()];
-
-            if (targetUrl) {
-                // link exists in redirects.json - check health
-                document.getElementById('status-title').textContent = "redirecting...";
-                document.getElementById('status-desc').textContent = "testing target url accessibility...";
-
-                let isHealthy = false;
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 3500);
-
-                try {
-                    await fetch(targetUrl, {
-                        mode: 'no-cors',
-                        cache: 'no-cache',
-                        signal: controller.signal
-                    });
-                    clearTimeout(timeoutId);
-                    isHealthy = true;
-                } catch (err) {
-                    clearTimeout(timeoutId);
-                    isHealthy = false;
-                }
-
-                if (isHealthy) {
-                    // site is working -> redirect
-                    window.location.replace(targetUrl);
-                } else {
-                    // target link is down/invalid -> display alert & notify
-                    document.getElementById('icon-container').innerHTML = `
-                        <svg class="w-8 h-8 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
-                        </svg>`;
-                    document.getElementById('status-title').textContent = "destination link broken";
-                    document.getElementById('status-desc').textContent = "the requested destination url is currently offline or invalid.";
-                    document.getElementById('action-area').classList.remove('hidden');
-
-                    await sendEmailAlert(
-                        `⚠️ broken redirect alert: ${cleanPath}`,
-                        `the shortlink "${cleanPath}" points to "${targetUrl}" which failed the reachability check.`,
-                        cleanPath,
-                        targetUrl
-                    );
-                }
-            } else {
-                // path does not exist in redirects.json -> 404 display without emailing
-                document.getElementById('icon-container').innerHTML = `
-                    <svg class="w-8 h-8 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                    </svg>`;
-                document.getElementById('status-title').textContent = "404 - page not found";
-                document.getElementById('status-desc').textContent = "the path you are looking for does not exist in the redirect catalog.";
-                document.getElementById('action-area').classList.remove('hidden');
-            }
-        }
-
-        window.addEventListener('DOMContentLoaded', checkAndRedirect);
     </script>
 </body>
 </html>
