@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>checking link...</title>
+    <link rel="icon" type="image/png" href="https://i.postimg.cc/prFxqGVk/Screenshot-2026-11-09-5-09-28-PM.png">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 flex items-center justify-center min-h-screen p-4">
+
+    <!-- Loading Card Container -->
+    <div class="bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow-2xl text-center max-w-md w-full">
+        <!-- Spinning Loader Icon -->
+        <div class="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4 text-indigo-400">
+            <svg class="w-8 h-8 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+        </div>
+
+        <h1 id="loading-title" class="text-2xl font-bold text-white mb-2">checking link...</h1>
+        <p id="loading-desc" class="text-slate-400 text-sm mb-6">verifying the destination page status.</p>
+
+        <div id="path-badge" class="inline-block bg-slate-800 text-indigo-300 text-xs font-mono px-3 py-1 rounded-full max-w-full truncate"></div>
+    </div>
+
+    <script>
+        /**
+         * Wraps fetch() with both an AbortController AND a hard Promise.race timer.
+         * This guarantees the request cannot hang forever even if a browser extension
+         * or school web filter intercepts fetch() and ignores AbortSignal.
+         */
+        function fetchWithHardTimeout(url, options, timeoutMs) {
+            const controller = new AbortController();
+            const fetchPromise = fetch(url, {
+                ...options,
+                signal: controller.signal
+            });
+
+            const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => {
+                    try {
+                        controller.abort();
+                    } catch (e) {
+                        // Ignore abort errors
+                    }
+                    reject(new Error("request timed out"));
+                }, timeoutMs);
+            });
+
+            return Promise.race([fetchPromise, timeoutPromise]);
+        }
+
+        /**
+         * Normalizes a pathname so "/Opium/" and "/opium" match cleanly.
+         */
+        function normalizePath(rawPath) {
+            if (!rawPath) return "/";
+            let clean = rawPath.split("?")[0].split("#")[0].trim().toLowerCase();
+            if (!clean.startsWith("/")) clean = "/" + clean;
+            if (clean.length > 1 && clean.endsWith("/")) {
+                clean = clean.slice(0, -1);
+            }
+            return clean;
+        }
+
+        /**
+         * Tests whether a destination URL is reachable using two bounded attempts.
+         * Uses mode: 'no-cors' so cross-origin websites without CORS headers still
+         * resolve as valid opaque responses when their server is online.
+         */
+        async function isDestinationReachable(targetUrl, descEl) {
+            const attempts = [4500, 4500];
+
+            for (let i = 0; i < attempts.length; i++) {
+                if (i > 0 && descEl) {
+                    descEl.textContent = "connection slow, retrying destination...";
+                }
+
+                try {
+                    await fetchWithHardTimeout(
+                        targetUrl,
+                        {
+                            method: "GET",
+                            mode: "no-cors",
+                            cache: "default",
+                            redirect: "follow"
+                        },
+                        attempts[i]
+                    );
+                    // Opaque or standard response received: destination server responded
+                    return true;
+                } catch (err) {
+                    // Failed or timed out on this attempt; loop will retry once
+                }
+            }
+
+            return false;
+        }
+
+        /**
+         * Forwards the user to 404.html with clear error metadata in query params.
+         */
+        function redirectTo404(reason, path, targetUrl) {
+            const titleEl = document.getElementById("loading-title");
+            const descEl = document.getElementById("loading-desc");
+
+            // In standalone blob: preview frames, relative navigation is unsupported; show status inline
+            if (window.location.protocol === "blob:" || window.location.protocol === "file:") {
+                if (titleEl) {
+                    titleEl.textContent = reason === "broken" ? "destination link broken" : "error 404 - path not found";
+                }
+                if (descEl) {
+                    descEl.textContent = reason === "broken"
+                        ? "the target website for this shortlink is invalid or unreachable."
+                        : "this shortlink path does not exist in redirects.json.";
+                }
+                return;
+            }
+
+            const params = new URLSearchParams();
+            params.set("reason", reason);
+            if (path) params.set("path", path);
+            if (targetUrl) params.set("target", targetUrl);
+
+            const errorUrl = new URL("/404.html?" + params.toString(), window.location.origin).href;
+            window.location.replace(errorUrl);
+        }
+
+        /**
+         * Main loading and verification flow.
+         */
+        async function runLinkCheck() {
+            const titleEl = document.getElementById("loading-title");
+            const descEl = document.getElementById("loading-desc");
+            const badgeEl = document.getElementById("path-badge");
+
+            try {
+                // Determine requested shortlink path from query param (?path=) or URL pathname
+                const urlParams = new URLSearchParams(window.location.search);
+                const paramPath = urlParams.get("path");
+                const isPreviewBlob = window.location.protocol === "blob:" || window.location.protocol === "file:";
+                const isDirectLoading =
+                    isPreviewBlob ||
+                    window.location.pathname === "/loading.html" ||
+                    window.location.pathname === "/loading";
+
+                const rawRequestedPath = paramPath
+                    ? paramPath
+                    : isDirectLoading
+                    ? "/"
+                    : window.location.pathname;
+
+                const cleanPath = normalizePath(rawRequestedPath);
+                badgeEl.textContent = cleanPath;
+
+                // If opened directly with no target path, go home on HTTP/HTTPS or show idle state in preview
+                if (cleanPath === "/") {
+                    if (isPreviewBlob) {
+                        titleEl.textContent = "ready to check links";
+                        descEl.textContent = "append ?path=/yourlink to test a shortlink.";
+                        return;
+                    }
+                    window.location.replace(new URL("/", window.location.origin).href);
+                    return;
+                }
+
+                // Fetch redirects.json with cache-busting and a strict 5s hard timeout
+                const jsonRes = await fetchWithHardTimeout(
+                    "/redirects.json?t=" + Date.now(),
+                    { cache: "no-store" },
+                    5000
+                );
+
+                if (!jsonRes.ok) {
+                    redirectTo404("not_found", cleanPath, "");
+                    return;
+                }
+
+                const rawText = await jsonRes.text();
+                let redirectsMap = {};
+                if (rawText && rawText.trim().length > 0) {
+                    try {
+                        redirectsMap = JSON.parse(rawText);
+                    } catch (parseErr) {
+                        console.error("invalid redirects.json format:", parseErr);
+                        redirectTo404("not_found", cleanPath, "");
+                        return;
+                    }
+                }
+
+                // Match requested path case-insensitively against redirects.json keys
+                let targetUrl = null;
+                for (const [key, value] of Object.entries(redirectsMap)) {
+                    if (normalizePath(key) === cleanPath) {
+                        targetUrl = String(value).trim();
+                        break;
+                    }
+                }
+
+                // Path does not exist in redirects.json -> show 404.html
+                if (!targetUrl) {
+                    redirectTo404("not_found", cleanPath, "");
+                    return;
+                }
+
+                // Path exists -> verify destination URL reachability
+                const reachable = await isDestinationReachable(targetUrl, descEl);
+
+                if (reachable) {
+                    titleEl.textContent = "redirecting...";
+                    descEl.textContent = "taking you to your destination now.";
+                    window.location.replace(targetUrl);
+                } else {
+                    redirectTo404("broken", cleanPath, targetUrl);
+                }
+            } catch (unexpectedErr) {
+                console.error("link check error:", unexpectedErr);
+                redirectTo404("not_found", normalizePath(window.location.pathname), "");
+            }
+        }
+
+        if (document.readyState === "loading") {
+            window.addEventListener("DOMContentLoaded", runLinkCheck);
+        } else {
+            runLinkCheck();
+        }
+    </script>
+</body>
+</html>
