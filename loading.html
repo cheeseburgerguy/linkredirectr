@@ -70,6 +70,18 @@
         }
 
         /**
+         * Resolves a clean path against standard entries in redirects.json.
+         */
+        function resolveTargetUrl(redirectsMap, cleanPath) {
+            for (const [key, value] of Object.entries(redirectsMap)) {
+                if (typeof value === "string" && normalizePath(key) === cleanPath) {
+                    return value.trim();
+                }
+            }
+            return null;
+        }
+
+        /**
          * Tests whether a destination URL is reachable using two bounded attempts.
          * Uses mode: 'no-cors' so cross-origin websites without CORS headers still
          * resolve as valid opaque responses when their server is online.
@@ -194,14 +206,8 @@
                     }
                 }
 
-                // Match requested path case-insensitively against redirects.json keys
-                let targetUrl = null;
-                for (const [key, value] of Object.entries(redirectsMap)) {
-                    if (normalizePath(key) === cleanPath) {
-                        targetUrl = String(value).trim();
-                        break;
-                    }
-                }
+                // Resolve requested path against exact links
+                const targetUrl = resolveTargetUrl(redirectsMap, cleanPath);
 
                 // Path does not exist in redirects.json -> show 404.html
                 if (!targetUrl) {
