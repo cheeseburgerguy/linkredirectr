@@ -131,15 +131,15 @@
         function initErrorPage() {
             const params = new URLSearchParams(window.location.search);
             const reason = params.get("reason");
-            const pathname = window.location.pathname;
+            const normalizedPathname = window.location.pathname.replace(/\/+$/, "") || "/";
             const isPreviewBlob = window.location.protocol === "blob:" || window.location.protocol === "file:";
-            const isDirect404File = pathname === "/404.html" || pathname === "/404";
+            const isDirect404File = normalizedPathname === "/404.html" || normalizedPathname === "/404";
 
-            // If Cloudflare served 404.html directly for a shortlink path (e.g. /opium) on HTTP/HTTPS,
+            // If Cloudflare served 404.html directly for a shortlink path (e.g. /aeos1) on HTTP/HTTPS,
             // forward to loading.html so loading & link verification happen there first.
             if (!reason && !isDirect404File && !isPreviewBlob) {
                 try {
-                    const requested = pathname + window.location.search;
+                    const requested = window.location.pathname + window.location.search;
                     const loadingUrl = new URL("/loading.html?path=" + encodeURIComponent(requested), window.location.origin).href;
                     window.location.replace(loadingUrl);
                     return;
@@ -156,7 +156,7 @@
             const retryBtn = document.getElementById("retry-btn");
             const reportBtn = document.getElementById("report-btn");
 
-            currentCleanPath = params.get("path") || (isPreviewBlob ? "/preview" : pathname) || "/unknown";
+            currentCleanPath = params.get("path") || (isPreviewBlob ? "/preview" : window.location.pathname) || "/unknown";
             currentTargetUrl = params.get("target") || "";
 
             if (reason === "broken" && currentTargetUrl) {
@@ -183,6 +183,16 @@
                         sendEmailAlert(currentCleanPath, currentTargetUrl);
                     }
                 });
+            } else if (reason === "json_missing") {
+                // redirects.json was not found at the site root
+                titleEl.textContent = "redirects.json not found";
+                descEl.textContent = "make sure redirects.json is placed in the root folder of your deployment.";
+                badgeEl.textContent = currentCleanPath + (currentTargetUrl ? " (" + currentTargetUrl + ")" : "");
+            } else if (reason === "json_invalid") {
+                // redirects.json exists, but contains a JSON syntax error
+                titleEl.textContent = "invalid redirects.json format";
+                descEl.textContent = "redirects.json has a syntax error and could not be parsed.";
+                badgeEl.textContent = currentTargetUrl || currentCleanPath;
             } else {
                 // Path does not exist in redirects.json
                 titleEl.textContent = "error 404 - path not found";
@@ -192,7 +202,7 @@
         }
 
         if (document.readyState === "loading") {
-            window.addEventListener("DOMContentLoaded", initErrorPage);
+            document.addEventListener("DOMContentLoaded", initErrorPage);
         } else {
             initErrorPage();
         }
