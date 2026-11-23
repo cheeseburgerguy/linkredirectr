@@ -1,264 +1,153 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>checking link...</title>
-    <link rel="icon" type="image/png" href="https://i.postimg.cc/prFxqGVk/Screenshot-2026-11-09-5-09-28-PM.png">
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        body { font-family: 'Inter', sans-serif; }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>checking link...</title>
+  <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-slate-950 text-slate-100 flex items-center justify-center min-h-screen p-4">
+<body class="bg-[#060913] text-slate-100 min-h-screen flex items-center justify-center p-4 antialiased selection:bg-indigo-500/30">
 
-    <!-- Loading Card Container -->
-    <div class="bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow-2xl text-center max-w-md w-full">
-        <!-- Spinning Loader Icon -->
-        <div class="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4 text-indigo-400">
-            <svg class="w-8 h-8 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-        </div>
-
-        <h1 id="loading-title" class="text-2xl font-bold text-white mb-2">checking link...</h1>
-        <p id="loading-desc" class="text-slate-400 text-sm mb-6">verifying the destination page status.</p>
-
-        <div id="path-badge" class="inline-block bg-slate-800 text-indigo-300 text-xs font-mono px-3 py-1 rounded-full max-w-full truncate"></div>
+  <main class="w-full max-w-md bg-[#0f172a] border border-slate-800/80 rounded-2xl p-8 text-center shadow-2xl">
+    <div class="w-14 h-14 rounded-full bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center mx-auto mb-5">
+      <svg class="w-6 h-6 text-indigo-400 animate-spin" fill="none" viewBox="0 0 24 24">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v3a5 5 0 00-5 5H4z"></path>
+      </svg>
     </div>
 
-    <script>
-        /**
-         * Wraps fetch() with both an AbortController AND a hard Promise.race timer.
-         * Guarantees requests never hang if an extension or web filter stalls fetch().
-         */
-        function fetchWithHardTimeout(url, options, timeoutMs) {
-            const controller = new AbortController();
-            const fetchPromise = fetch(url, {
-                ...options,
-                signal: controller.signal
-            });
+    <h1 class="text-2xl font-bold text-white tracking-tight mb-2">
+      checking link...
+    </h1>
+    <p id="status-text" class="text-sm text-slate-400 leading-relaxed mb-5">
+      verifying shortlink and destination availability.
+    </p>
 
-            const timeoutPromise = new Promise((_, reject) => {
-                setTimeout(() => {
-                    try {
-                        controller.abort();
-                    } catch (e) {
-                        // Ignore abort errors
-                    }
-                    reject(new Error("request timed out"));
-                }, timeoutMs);
-            });
+    <div class="inline-block max-w-full truncate px-3.5 py-1.5 rounded-full bg-[#060913] border border-slate-800 text-xs font-mono text-slate-400">
+      <span id="path-label">/</span>
+    </div>
+  </main>
 
-            return Promise.race([fetchPromise, timeoutPromise]);
+  <script>
+    (function () {
+      const isPreview = window.location.protocol === "blob:" || window.location.protocol === "file:";
+
+      function buildUrl(fileOrPath, paramsObj) {
+        const query = paramsObj ? new URLSearchParams(paramsObj).toString() : "";
+        const suffix = query ? "?" + query : "";
+        if (isPreview) return fileOrPath.replace(/^\//, "") + suffix;
+        return window.location.origin + fileOrPath + suffix;
+      }
+
+      function safeNavigate(url) {
+        if (isPreview) {
+          document.getElementById("status-text").textContent = "preview redirect: " + url;
+          return;
+        }
+        window.location.replace(url);
+      }
+
+      function redirectTo404(reason, path, target) {
+        const params = { reason, path };
+        if (target) params.target = target;
+        safeNavigate(buildUrl("/404.html", params));
+      }
+
+      function fetchWithTimeout(url, options, timeoutMs) {
+        const controller = new AbortController();
+        const fetchPromise = fetch(url, { ...options, signal: controller.signal });
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => {
+            controller.abort();
+            reject(new Error("timeout"));
+          }, timeoutMs);
+        });
+        return Promise.race([fetchPromise, timeoutPromise]);
+      }
+
+      async function pingDestination(targetUrl) {
+        // Browsers block http:// subresource fetches on https:// pages as Mixed Content
+        if (window.location.protocol === "https:" && targetUrl.startsWith("http://")) {
+          return true;
         }
 
-        /**
-         * Normalizes a pathname so "/Aeos1/" and "/aeos1" match cleanly.
-         */
-        function normalizePath(rawPath) {
-            if (!rawPath) return "/";
-            let clean = rawPath.split("?")[0].split("#")[0].trim().toLowerCase();
-            if (!clean.startsWith("/")) clean = "/" + clean;
-            if (clean.length > 1 && clean.endsWith("/")) {
-                clean = clean.slice(0, -1);
-            }
-            return clean;
+        // Fast 2-step check (~4s max total)
+        const timeouts = [2500, 1500];
+        for (const ms of timeouts) {
+          try {
+            await fetchWithTimeout(
+              targetUrl,
+              { method: "GET", mode: "no-cors", cache: "default", redirect: "follow" },
+              ms
+            );
+            return true;
+          } catch (_) {
+            // retry once on brief network/DNS hiccup
+          }
+        }
+        return false;
+      }
+
+      async function run() {
+        const params = new URLSearchParams(window.location.search);
+        let shortPath = params.get("path") || window.location.pathname;
+        shortPath = "/" + shortPath.replace(/^\/+|\/+$/g, "");
+        if (shortPath === "/loading.html" || shortPath === "/loading") shortPath = "/";
+
+        document.getElementById("path-label").textContent = shortPath;
+
+        if (shortPath === "/") {
+          safeNavigate(buildUrl("/"));
+          return;
         }
 
-        /**
-         * Cleans accidental Markdown link formatting or stray backslashes in a URL.
-         */
-        function sanitizeTargetUrl(rawUrl) {
-            let url = rawUrl.trim();
-            const mdMatch = url.match(/^\[[^\]]+\]\((https?:\/\/[^)]+)\)$/i);
-            if (mdMatch) {
-                url = mdMatch[1];
-            }
-            return url.replace(/\\([:&!_])/g, "$1").trim();
+        let redirectsMap = null;
+        try {
+          const res = await fetchWithTimeout("/redirects.json", { cache: "no-cache" }, 4000);
+          if (!res.ok) {
+            redirectTo404("json_missing", shortPath);
+            return;
+          }
+          const rawText = await res.text();
+          redirectsMap = JSON.parse(rawText);
+        } catch (err) {
+          redirectTo404("json_invalid", shortPath, err && err.message ? err.message.slice(0, 80) : "parse error");
+          return;
         }
 
-        /**
-         * Recursively flattens a parsed JSON object or array of objects into
-         * a single normalized { "/path": "https://..." } lookup table.
-         */
-        function flattenRedirectsData(node, outMap) {
-            if (!node || typeof node !== "object") return;
+        const lookupKey = shortPath.toLowerCase();
+        let targetUrl = redirectsMap[shortPath] || redirectsMap[lookupKey];
 
-            if (Array.isArray(node)) {
-                for (const item of node) {
-                    flattenRedirectsData(item, outMap);
-                }
-                return;
+        if (!targetUrl) {
+          for (const [key, val] of Object.entries(redirectsMap)) {
+            const normKey = "/" + String(key).replace(/^\/+|\/+$/g, "").toLowerCase();
+            if (normKey === lookupKey && typeof val === "string") {
+              targetUrl = val;
+              break;
             }
-
-            for (const [key, value] of Object.entries(node)) {
-                if (typeof value === "string") {
-                    outMap[normalizePath(key)] = sanitizeTargetUrl(value);
-                } else if (value && typeof value === "object") {
-                    flattenRedirectsData(value, outMap);
-                }
-            }
+          }
         }
 
-        /**
-         * Resolves a clean path against flattened entries in redirects.json.
-         */
-        function resolveTargetUrl(redirectsMap, cleanPath) {
-            return redirectsMap[cleanPath] || null;
+        if (!targetUrl) {
+          redirectTo404("not_found", shortPath);
+          return;
         }
 
-        /**
-         * Tests whether a destination URL is reachable using two bounded attempts.
-         * Uses mode: 'no-cors' so cross-origin websites without CORS headers still
-         * resolve as valid opaque responses when their server is online.
-         */
-        async function isDestinationReachable(targetUrl, descEl) {
-            const attempts = [4500, 4500];
-
-            for (let i = 0; i < attempts.length; i++) {
-                if (i > 0 && descEl) {
-                    descEl.textContent = "connection slow, retrying destination...";
-                }
-
-                try {
-                    await fetchWithHardTimeout(
-                        targetUrl,
-                        {
-                            method: "GET",
-                            mode: "no-cors",
-                            cache: "default",
-                            redirect: "follow"
-                        },
-                        attempts[i]
-                    );
-                    return true;
-                } catch (err) {
-                    // Failed or timed out on this attempt; loop will retry once
-                }
-            }
-
-            return false;
-        }
-
-        /**
-         * Forwards the user to 404.html with clear error metadata in query params.
-         */
-        function redirectTo404(reason, path, targetUrl) {
-            const titleEl = document.getElementById("loading-title");
-            const descEl = document.getElementById("loading-desc");
-
-            if (window.location.protocol === "blob:" || window.location.protocol === "file:") {
-                if (titleEl) {
-                    if (reason === "broken") titleEl.textContent = "destination link broken";
-                    else if (reason === "json_missing") titleEl.textContent = "redirects.json not found";
-                    else if (reason === "json_invalid") titleEl.textContent = "invalid redirects.json format";
-                    else titleEl.textContent = "error 404 - path not found";
-                }
-                if (descEl) {
-                    if (reason === "broken") descEl.textContent = "the target website for this shortlink is invalid or unreachable.";
-                    else if (reason === "json_missing") descEl.textContent = "make sure redirects.json is uploaded in the root folder of your site.";
-                    else if (reason === "json_invalid") descEl.textContent = targetUrl || "redirects.json has a syntax error and could not be read.";
-                    else descEl.textContent = "this shortlink path does not exist in redirects.json.";
-                }
-                return;
-            }
-
-            const params = new URLSearchParams();
-            params.set("reason", reason);
-            if (path) params.set("path", path);
-            if (targetUrl) params.set("target", targetUrl);
-
-            const errorUrl = new URL("/404.html?" + params.toString(), window.location.origin).href;
-            window.location.replace(errorUrl);
-        }
-
-        /**
-         * Main link-checking workflow executed when loading.html opens.
-         */
-        async function runLinkCheck() {
-            const descEl = document.getElementById("loading-desc");
-            const badgeEl = document.getElementById("path-badge");
-            const params = new URLSearchParams(window.location.search);
-            const isPreviewBlob = window.location.protocol === "blob:" || window.location.protocol === "file:";
-
-            const rawRequestedPath = params.get("path") || (isPreviewBlob ? "/preview" : window.location.pathname);
-            const cleanPath = normalizePath(rawRequestedPath);
-
-            badgeEl.textContent = cleanPath;
-
-            if (cleanPath === "/" || cleanPath === "/loading" || cleanPath === "/loading.html") {
-                if (!isPreviewBlob) {
-                    window.location.replace(new URL("/", window.location.origin).href);
-                }
-                return;
-            }
-
-            try {
-                const jsonRes = await fetchWithHardTimeout(
-                    "/redirects.json?t=" + Date.now(),
-                    { cache: "no-store" },
-                    5000
-                );
-
-                if (!jsonRes.ok) {
-                    redirectTo404("json_missing", cleanPath, "HTTP " + jsonRes.status);
-                    return;
-                }
-
-                const rawText = await jsonRes.text();
-                const trimmedText = rawText ? rawText.trim() : "";
-
-                if (!trimmedText || trimmedText.startsWith("<")) {
-                    redirectTo404("json_missing", cleanPath, "redirects.json not found at site root");
-                    return;
-                }
-
-                let flatRedirectsMap = {};
-                try {
-                    // Auto-repair adjacent JSON objects if chunks were pasted together,
-                    // and strip any trailing commas before closing brackets/braces.
-                    const cleanedJsonText = trimmedText
-                        .replace(/\}\s*\{/g, ",")
-                        .replace(/,\s*([}\]])/g, "$1");
-                    const parsedJson = JSON.parse(cleanedJsonText);
-                    flattenRedirectsData(parsedJson, flatRedirectsMap);
-                } catch (parseErr) {
-                    console.error("invalid redirects.json format:", parseErr);
-                    redirectTo404("json_invalid", cleanPath, parseErr.message);
-                    return;
-                }
-
-                const targetUrl = resolveTargetUrl(flatRedirectsMap, cleanPath);
-
-                if (!targetUrl) {
-                    redirectTo404("not_found", cleanPath, "");
-                    return;
-                }
-
-                badgeEl.textContent = cleanPath + " → " + targetUrl;
-
-                const isReachable = await isDestinationReachable(targetUrl, descEl);
-
-                if (isReachable) {
-                    descEl.textContent = "link verified! redirecting now...";
-                    window.location.replace(targetUrl);
-                } else {
-                    redirectTo404("broken", cleanPath, targetUrl);
-                }
-            } catch (err) {
-                console.error("link check error:", err);
-                redirectTo404("not_found", cleanPath, "");
-            }
-        }
-
-        if (document.readyState === "loading") {
-            document.addEventListener("DOMContentLoaded", runLinkCheck);
+        const isReachable = await pingDestination(targetUrl);
+        if (isReachable) {
+          document.getElementById("status-text").textContent = "redirecting...";
+          safeNavigate(targetUrl);
         } else {
-            runLinkCheck();
+          redirectTo404("broken", shortPath, targetUrl);
         }
-    </script>
+      }
+
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", run);
+      } else {
+        run();
+      }
+    })();
+  </script>
 </body>
 </html>
